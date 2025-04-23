@@ -4,7 +4,7 @@
 #include <optional>
 #include <vector>
 
-#define VK_NO_PROTOTYPES
+#include <vk_lib.h>
 #include <vk_mem_alloc.h>
 
 struct Vertex {

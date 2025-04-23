@@ -9,7 +9,6 @@
 #include <functional>
 #include <ktx.h>
 #include <thread>
-#include <vk_lib.h>
 
 #include <vulkan/vk_enum_string_helper.h>
 
