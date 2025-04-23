@@ -33,4 +33,6 @@ if (NOT TARGET vk-lib)
     target_link_libraries(vk-gltf PRIVATE vk-lib)
 endif ()
 
-target_include_directories(vk-gltf PRIVATE include vendor)
+target_include_directories(vk-gltf PRIVATE vendor)
+
+target_include_directories(vk-gltf PUBLIC include)
