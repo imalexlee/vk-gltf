@@ -8,7 +8,6 @@ set(CMAKE_CXX_STANDARD 20)
 
 add_library(vk-gltf STATIC src/loader.cpp)
 
-#if (NOT TARGET ktx)
 set(KTX_FEATURE_TESTS OFF CACHE BOOL "Disable KTX tests" FORCE)
 set(KTX_FEATURE_TOOLS OFF CACHE BOOL "Disable KTX tools" FORCE)
 set(KTX_FEATURE_TOOLS_CTS OFF CACHE BOOL "Disable KTX CTS tests" FORCE)
@@ -21,9 +20,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ktx)
 target_link_libraries(vk-gltf PRIVATE ktx)
-#endif ()
 
-#if (NOT TARGET vk-lib)
 FetchContent_Declare(
         vk-lib
         GIT_REPOSITORY https://github.com/imalexlee/vk-lib.git
@@ -33,6 +30,5 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(vk-lib)
 
 target_link_libraries(vk-gltf PUBLIC vk-lib)
-#endif ()
 
 target_include_directories(vk-gltf PUBLIC include vendor)
