@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.29)
 include(FetchContent)
 project(vk_gltf)
 
+find_package(Vulkan REQUIRED)
+
 set(CMAKE_CXX_STANDARD 20)
 
 add_library(vk-gltf STATIC src/loader.cpp)
