@@ -18,7 +18,6 @@ FetchContent_Declare(
         GIT_TAG beef80159525d9fb7abb8645ea85f4c4f6842e8f
         GIT_SUBMODULES ""
 )
-FetchContent_MakeAvailable(ktx)
 target_link_libraries(vk-gltf PRIVATE ktx)
 
 FetchContent_Declare(
@@ -28,7 +27,13 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(vk-lib)
+FetchContent_MakeAvailable(ktx)
 
 target_link_libraries(vk-gltf PUBLIC vk-lib)
 
 target_include_directories(vk-gltf PUBLIC include vendor)
+
+set(VK_GLTF_BUILD_TEST_VIEWER FALSE)
+if (VK_GLTF_BUILD_TEST_VIEWER)
+    add_subdirectory(test)
+endif ()

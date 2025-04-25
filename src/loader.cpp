@@ -1,7 +1,5 @@
 #include "vk_gltf/loader.h"
 
-#include <stb_image.h>
-
 #ifndef KHRONOS_STATIC
 #define KHRONOS_STATIC
 #endif
@@ -9,6 +7,22 @@
 #include <functional>
 #include <ktx.h>
 #include <thread>
+
+// #ifndef VMA_IMPLEMENTATION
+// #define VMA_IMPLEMENTATION
+// #endif
+//
+// #ifndef CGLTF_IMPLEMENTATION
+// #define CGLTF_IMPLEMENTATION
+// #endif CGLTF_IMPLEMENTATION
+//
+// #ifndef STB_IMAGE_IMPLEMENTATION
+// #define STB_IMAGE_IMPLEMENTATION
+// #endif STB_IMAGE_IMPLEMENTATION
+
+#include "stb_image.h"
+#include <cgltf.h>
+#include <vk_mem_alloc.h>
 
 #include <vulkan/vk_enum_string_helper.h>
 
@@ -205,7 +219,9 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
     std::vector<GltfImage> gltf_images;
     gltf_images.reserve(cgltf_data->images_count);
     for (uint32_t i = 0; i < cgltf_data->images_count; i++) {
-        std::cout << "loading image: " << std::to_string(i) << std::endl;
+#ifndef NDEBUG
+        std::cout << "loading GLTF image: " << std::to_string(i) << std::endl;
+#endif
 
         // 1. pull formats from images
         int width, height, component_count;
