@@ -220,9 +220,9 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
     std::vector<GltfImage> gltf_images;
     gltf_images.reserve(cgltf_data->images_count);
     for (uint32_t i = 0; i < cgltf_data->images_count; i++) {
-        // #ifndef NDEBUG
+#ifndef NDEBUG
         std::cout << "loading GLTF image: " << std::to_string(i) << std::endl;
-        // #endif
+#endif
 
         // 1. pull formats from images
         int width, height, component_count;
@@ -454,11 +454,7 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
                         mip_height /= 2;
                     }
                 }
-                //    6.a blit from last level to the next (start at i = 1);
-
-                //    6.b create buffer to image copy struct
-                // 7. perform image->buffer copy to get all blitted images into the staging buffer
-                // 8. do ktx setImageFromMemory at the correct staging buffer offsets for all mip levels
+                vmaDestroyImage(allocator, mipmapped_image, mipmapped_image_allocation);
 
             } else {
                 result = ktxTexture_SetImageFromMemory(ktxTexture(ktx_texture), 0, 0, 0, img_data, img_data_size);
