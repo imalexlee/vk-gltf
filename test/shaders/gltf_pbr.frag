@@ -112,6 +112,10 @@ void main() {
     vec3 tex_normal = texture(tex_samplers[nonuniformEXT (mat.normal_texture.index)], normal_uv).xyz;
     vec4 tex_color = texture(tex_samplers[nonuniformEXT (mat.base_color_texture.index)], color_uv).rgba;
 
+    float mipmap_level = (textureQueryLOD(tex_samplers[nonuniformEXT (mat.base_color_texture.index)], color_uv).x);
+    //    out_color = vec4(vec3(mipmap_level / 11), 1);
+    //    return;
+
     vec3 normal = vert_normal;
 
     // until i can find a branchless option, simply don't apply normal mapping if the tex_normal == vec(1)
@@ -121,7 +125,7 @@ void main() {
         tex_normal = tex_normal* 2.f - 1.f;
         tex_normal *= vec3(mat.normal_scale, mat.normal_scale, 1);
         tex_normal = normalize(tex_normal);
-        vec3 bitangent = cross(vert_normal, vec3(vert_tangent)) * vert_tangent.w;
+        vec3 bitangent = cross(vert_normal, vec3(vert_tangent)) * -vert_tangent.w;
         TBN = mat3(vec3(vert_tangent), bitangent, vert_normal);
         normal = normalize(TBN * tex_normal);
     }
@@ -168,7 +172,7 @@ void main() {
     }
 
     // MANUAL EXPOSURE
-    float aperature = 11;
+    float aperature = 16;
     float shutter_time = 1 / 125.f;
     float iso = 100;
 
@@ -188,13 +192,13 @@ void main() {
     vec3 ambient_contribution = ambient_illuminance * exposure * albedo.rgb * occlusion;
 
 
-    const bool enable_up_factor = true;
+    const bool enable_up_factor = false;
     if (enable_up_factor){
         float up_factor = max((dot(normal, vec3(0, 1, 0)) + 1.f) * 0.5f, 0.2);
         ambient_contribution *= up_factor;
     }
 
-    vec3 final_color = (direct_luminance) + ambient_contribution + emissive;
+    vec3 final_color = direct_luminance + ambient_contribution + emissive;
     final_color = ACESFilm(final_color);
 
     out_color = vec4(final_color, albedo.a);

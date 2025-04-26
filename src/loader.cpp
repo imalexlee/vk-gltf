@@ -192,8 +192,9 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
     if (staging_buffer->allocation_info.size > 0) {
         vmaDestroyBuffer(allocator, staging_buffer->buffer, staging_buffer->allocation);
     }
-    const VkBufferCreateInfo staging_buffer_ci = vk_lib::buffer_create_info(VK_BUFFER_USAGE_TRANSFER_SRC_BIT, data_size, 0);
-    VmaAllocationCreateInfo  allocation_ci{};
+    const VkBufferCreateInfo staging_buffer_ci =
+        vk_lib::buffer_create_info(VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, data_size, 0);
+    VmaAllocationCreateInfo allocation_ci{};
     allocation_ci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
     allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
     VK_CHECK(vmaCreateBuffer(allocator, &staging_buffer_ci, &allocation_ci, &staging_buffer->buffer, &staging_buffer->allocation,
@@ -203,7 +204,7 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
 // load gltf images, compress them, then create vulkan images and images views from them
 [[nodiscard]] static std::vector<GltfImage> load_gltf_images(const LoadOptions* load_options, const cgltf_data* cgltf_data, VkDevice device,
                                                              VmaAllocator allocator, VkCommandPool command_pool, VkQueue queue,
-                                                             uint32_t queue_family_index, GltfBuffer* staging_buffer) {
+                                                             GltfBuffer* staging_buffer) {
     bool check_cache    = false;
     bool write_to_cache = false;
     if (!load_options->cache_dir.empty()) {
@@ -219,9 +220,9 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
     std::vector<GltfImage> gltf_images;
     gltf_images.reserve(cgltf_data->images_count);
     for (uint32_t i = 0; i < cgltf_data->images_count; i++) {
-#ifndef NDEBUG
+        // #ifndef NDEBUG
         std::cout << "loading GLTF image: " << std::to_string(i) << std::endl;
-#endif
+        // #endif
 
         // 1. pull formats from images
         int width, height, component_count;
@@ -249,7 +250,12 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
         KTX_error_code result;
 
         // 2. look into cache for images, if the cache directory exists
-        std::string image_hash = load_options->gltf_path.stem().string() + "_" + std::to_string(i) + ".ktx2";
+        uint32_t mip_levels = 1;
+        if (load_options->create_mipmaps) {
+            mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
+        }
+        // hash is the [gltf asset name]_[image index]_[mip levels].ktx2
+        std::string image_hash = load_options->gltf_path.stem().string() + "_" + std::to_string(i) + "_" + std::to_string(mip_levels) + ".ktx2";
         std::string cache_path = load_options->cache_dir.string() + image_hash;
 
         bool cache_img_exists = false;
@@ -286,7 +292,7 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
             create_info.numDimensions   = 2;
             create_info.numFaces        = 1;
             create_info.numLayers       = 1;
-            create_info.numLevels       = 1;
+            create_info.numLevels       = mip_levels;
             create_info.isArray         = false;
             create_info.generateMipmaps = false;
             result                      = ktxTexture2_Create(&create_info, KTX_TEXTURE_CREATE_ALLOC_STORAGE, &ktx_texture);
@@ -297,12 +303,170 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
 
             uint64_t img_data_size = required_components * width * height;
 
-            result = ktxTexture_SetImageFromMemory(ktxTexture(ktx_texture), 0, 0, 0, img_data, img_data_size);
-            stbi_image_free(img_data); // todo: see if it is actually safe to free the image here
+            // todo: generate mip maps
+            if (load_options->create_mipmaps) {
+                // 1. allocate vulkan image with appropriate mip levels, extents, etx
+                // 2. make staging buffer large enough for all levels.
+                // 3. fill in staging buffer at offset 0 with raw stb image data
+                // 4. maybe free stb image data now
+                // 5. buffer->image copy from staging to first mip level of image
+                // 6. for each mip level:
+                //    6.a blit from last level to the next (start at i = 1);
+                //    6.b create buffer to image copy struct
+                // 7. perform image->buffer copy to get all blitted images into the staging buffer
+                // 8. do ktx setImageFromMemory at the correct staging buffer offsets for all mip levels
 
-            if (result != KTX_SUCCESS) {
-                const std::string message = "Cannot set ktx image from memory with error code: " + std::to_string(result);
-                abort_message(message);
+                // 1. allocate vulkan image with appropriate mip levels, extents, etx
+                VkImageCreateInfo mipmapped_image_ci =
+                    vk_lib::image_create_info(VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                              vk_lib::extent_3d(width, height), mip_levels);
+                VmaAllocationCreateInfo mipmapped_allocation_ci{};
+                mipmapped_allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+                VkImage           mipmapped_image;
+                VmaAllocation     mipmapped_image_allocation;
+                VmaAllocationInfo mipmapped_image_allocation_info;
+                VK_CHECK(vmaCreateImage(allocator, &mipmapped_image_ci, &mipmapped_allocation_ci, &mipmapped_image, &mipmapped_image_allocation,
+                                        &mipmapped_image_allocation_info));
+                // 2. make staging buffer large enough for all levels.
+                uint64_t required_mip_buffer_size = 0;
+                {
+                    uint32_t mip_width  = width;
+                    uint32_t mip_height = height;
+                    for (uint32_t level = 0; level < mip_levels; level++) {
+                        required_mip_buffer_size += mip_width * mip_height * 4; // 4 color channels. each color channel is a byte
+                        if (mip_width > 1) {
+                            mip_width /= 2;
+                        }
+                        if (mip_height > 1) {
+                            mip_height /= 2;
+                        }
+                    }
+                }
+                if (staging_buffer->allocation_info.size < required_mip_buffer_size) {
+                    allocate_staging_buffer(allocator, required_mip_buffer_size, staging_buffer);
+                }
+                // 3. fill in staging buffer at offset 0 with raw stb image data
+                memcpy(staging_buffer->allocation_info.pMappedData, img_data, width * height * 4);
+                // 4. maybe free stb image data now
+                stbi_image_free(img_data);
+
+                // 5. buffer->image copy from staging to first mip level of image
+                vk_command_immediate_submit(device, command_pool, queue, [&](VkCommandBuffer cmd_buf) {
+                    // transition all mip levels to DST_OPTIMAL
+                    VkImageSubresourceRange     subresource_range = vk_lib::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
+                    const VkImageMemoryBarrier2 copy_memory_barrier =
+                        vk_lib::image_memory_barrier_2(mipmapped_image, subresource_range, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
+
+                    const VkDependencyInfo copy_dependency_info = vk_lib::dependency_info(&copy_memory_barrier, nullptr, nullptr);
+                    vkCmdPipelineBarrier2(cmd_buf, &copy_dependency_info);
+
+                    VkImageSubresourceLayers subresource_layers = vk_lib::image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT);
+                    VkExtent3D               image_extent       = vk_lib::extent_3d(width, height);
+                    VkBufferImageCopy        buffer_image_copy  = vk_lib::buffer_image_copy(subresource_layers, image_extent);
+
+                    vkCmdCopyBufferToImage(cmd_buf, staging_buffer->buffer, mipmapped_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                                           &buffer_image_copy);
+                });
+
+                // 6. for each mip level:
+                std::vector<VkBufferImageCopy> buffer_copies{};
+                buffer_copies.reserve(mip_levels - 1); // since first image is already in the staging buffer
+                vk_command_immediate_submit(device, command_pool, queue, [&](VkCommandBuffer cmd_buf) {
+                    uint32_t mip_width  = width;
+                    uint32_t mip_height = height;
+                    for (uint32_t level = 1; level < mip_levels; level++) {
+                        VkImageSubresourceRange     subresource_range = vk_lib::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT, 1, level - 1);
+                        const VkImageMemoryBarrier2 convert_old_to_src_optimal_barrier =
+                            vk_lib::image_memory_barrier_2(mipmapped_image, subresource_range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
+
+                        const VkDependencyInfo src_level_dependency_info =
+                            vk_lib::dependency_info(&convert_old_to_src_optimal_barrier, nullptr, nullptr);
+
+                        vkCmdPipelineBarrier2(cmd_buf, &src_level_dependency_info);
+
+                        // blit
+                        VkImageSubresourceLayers blit_src_subresource_layers = vk_lib::image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, level - 1);
+                        VkImageSubresourceLayers blit_dst_subresource_layers = vk_lib::image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, level);
+                        std::array               src_offsets                 = {vk_lib::offset_3d(), vk_lib::offset_3d(mip_width, mip_height, 1)};
+                        std::array               dst_offsets                 = {vk_lib::offset_3d(),
+                                                                                vk_lib::offset_3d(mip_width > 1 ? mip_width / 2 : 1, mip_height > 1 ? mip_height / 2 : 1, 1)};
+                        VkImageBlit              image_blit =
+                            vk_lib::image_blit(blit_src_subresource_layers, blit_dst_subresource_layers, src_offsets, dst_offsets);
+
+                        vkCmdBlitImage(cmd_buf, mipmapped_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mipmapped_image,
+                                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_blit, VK_FILTER_LINEAR);
+
+                        if (level == mip_levels - 1) {
+                            // if the destination mip is the last mip level, it won't enter this loop again after this.
+                            // this means we have to transition it to transfer source optimal here
+                            subresource_range = vk_lib::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT, 1, level);
+                            const VkImageMemoryBarrier2 convert_last_to_src_optimal_barrier = vk_lib::image_memory_barrier_2(
+                                mipmapped_image, subresource_range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
+
+                            const VkDependencyInfo final_level_dependency_info =
+                                vk_lib::dependency_info(&convert_last_to_src_optimal_barrier, nullptr, nullptr);
+
+                            vkCmdPipelineBarrier2(cmd_buf, &final_level_dependency_info);
+                        }
+
+                        VkImageSubresourceLayers copy_subresource_layers = vk_lib::image_subresource_layers(VK_IMAGE_ASPECT_COLOR_BIT, level);
+                        VkExtent3D        mip_extent = vk_lib::extent_3d(mip_width > 1 ? mip_width / 2 : 1, mip_height > 1 ? mip_height / 2 : 1);
+                        VkBufferImageCopy buffer_image_copy =
+                            vk_lib::buffer_image_copy(copy_subresource_layers, mip_extent, mip_width * mip_height * 4);
+
+                        buffer_copies.push_back(buffer_image_copy);
+
+                        if (mip_width > 1) {
+                            mip_width /= 2;
+                        }
+                        if (mip_height > 1) {
+                            mip_height /= 2;
+                        }
+                    }
+
+                    // copy all image data into the CPU side staging buffer in order for ktx to compress
+                    vkCmdCopyImageToBuffer(cmd_buf, mipmapped_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_buffer->buffer,
+                                           buffer_copies.size(), buffer_copies.data());
+                });
+
+                uint32_t mip_width     = width;
+                uint32_t mip_height    = height;
+                uint64_t buffer_offset = 0;
+                for (uint32_t level = 0; level < mip_levels; level++) {
+                    uint64_t       data_size = mip_width * mip_height * 4;
+                    const uint8_t* src_data  = static_cast<uint8_t*>(staging_buffer->allocation_info.pMappedData);
+
+                    result = ktxTexture_SetImageFromMemory(ktxTexture(ktx_texture), level, 0, 0, src_data + buffer_offset, data_size);
+
+                    if (result != KTX_SUCCESS) {
+                        const std::string message = "Cannot set ktx image from memory with error code: " + std::to_string(result);
+                        abort_message(message);
+                    }
+
+                    buffer_offset = data_size;
+                    if (mip_width > 1) {
+                        mip_width /= 2;
+                    }
+                    if (mip_height > 1) {
+                        mip_height /= 2;
+                    }
+                }
+                //    6.a blit from last level to the next (start at i = 1);
+
+                //    6.b create buffer to image copy struct
+                // 7. perform image->buffer copy to get all blitted images into the staging buffer
+                // 8. do ktx setImageFromMemory at the correct staging buffer offsets for all mip levels
+
+            } else {
+                result = ktxTexture_SetImageFromMemory(ktxTexture(ktx_texture), 0, 0, 0, img_data, img_data_size);
+                stbi_image_free(img_data);
+                if (result != KTX_SUCCESS) {
+                    const std::string message = "Cannot set ktx image from memory with error code: " + std::to_string(result);
+                    abort_message(message);
+                }
             }
 
             ktxBasisParams params{};
@@ -338,7 +502,6 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
         VkImageCreateInfo image_ci =
             vk_lib::image_create_info(static_cast<VkFormat>(ktx_texture->vkFormat), VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                       base_image_extent, ktx_texture->numLevels);
-
         VmaAllocationCreateInfo texture_allocation_ci{};
         texture_allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
@@ -386,7 +549,7 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
             // TODO: specify more fine grained stage and access flags
             const VkImageMemoryBarrier2 copy_memory_barrier =
                 vk_lib::image_memory_barrier_2(new_texture.image, subresource_range, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                               queue_family_index, queue_family_index);
+                                               VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
 
             const VkDependencyInfo copy_dependency_info = vk_lib::dependency_info(&copy_memory_barrier, nullptr, nullptr);
             vkCmdPipelineBarrier2(cmd_buf, &copy_dependency_info);
@@ -397,7 +560,7 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
             // TODO: specify more fine grained stage and access flags
             const VkImageMemoryBarrier2 texture_use_memory_barrier =
                 vk_lib::image_memory_barrier_2(new_texture.image, subresource_range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, queue_family_index, queue_family_index);
+                                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
 
             const VkDependencyInfo texture_use_dependency_info = vk_lib::dependency_info(&texture_use_memory_barrier, nullptr, nullptr);
             vkCmdPipelineBarrier2(cmd_buf, &texture_use_dependency_info);
@@ -883,8 +1046,7 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
     return scenes;
 }
 
-GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkDevice device, VkCommandPool command_pool, VkQueue queue,
-                    uint32_t queue_family_index) {
+GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkDevice device, VkCommandPool command_pool, VkQueue queue) {
     cgltf_options options{};
     cgltf_data*   gltf_data = nullptr;
 
@@ -909,7 +1071,7 @@ GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkD
     GltfBuffer staging_buffer{};
 
     GltfAsset gltf_asset{};
-    gltf_asset.images    = load_gltf_images(load_options, gltf_data, device, allocator, command_pool, queue, queue_family_index, &staging_buffer);
+    gltf_asset.images    = load_gltf_images(load_options, gltf_data, device, allocator, command_pool, queue, &staging_buffer);
     gltf_asset.meshes    = load_gltf_meshes(gltf_data, device, queue, command_pool, allocator, &staging_buffer);
     gltf_asset.samplers  = load_gltf_samplers(gltf_data, device);
     gltf_asset.materials = load_gltf_materials(gltf_data);

@@ -425,11 +425,12 @@ static void renderer_init_shader_data(Renderer* renderer) {
 
 void renderer_add_gltf_asset(Renderer* renderer, const char* gltf_path) {
     LoadOptions gltf_load_options{};
-    gltf_load_options.gltf_path = gltf_path;
-    gltf_load_options.cache_dir = "cache/";
+    gltf_load_options.gltf_path      = gltf_path;
+    gltf_load_options.cache_dir      = "cache/";
+    gltf_load_options.create_mipmaps = true;
 
     GltfAsset asset = load_gltf(&gltf_load_options, renderer->allocator, renderer->vk_context.device, renderer->vk_context.frame_command_pool,
-                                renderer->vk_context.graphics_queue, renderer->vk_context.queue_family);
+                                renderer->vk_context.graphics_queue);
 
     // add new draw objects
     for (const GltfNode& node : asset.nodes) {
@@ -849,7 +850,8 @@ void renderer_create(Renderer* renderer) {
 
     renderer_create_graphics_pipeline(renderer, swapchain_ctx->surface_format.format);
 
-    renderer_add_gltf_asset(renderer, "../../assets/sponza/Sponza.gltf");
+    // renderer_add_gltf_asset(renderer, "../../assets/sponza/Sponza.gltf");
+    renderer_add_gltf_asset(renderer, "../../assets/main1_sponza/NewSponza_Main_glTF_003.gltf");
 
     active_renderer = renderer;
 }

@@ -63,6 +63,7 @@ struct GltfImage {
     VkFormat          image_format{};
     VkImageLayout     layout{};
     VkExtent3D        extent{};
+    uint32_t          mip_levels{1};
     VmaAllocation     allocation{};
     VmaAllocationInfo allocation_info{};
 };
@@ -112,7 +113,8 @@ struct GltfAsset {
 struct LoadOptions {
     std::filesystem::path gltf_path{};
     std::filesystem::path cache_dir{};
+    bool                  create_mipmaps{false};
 };
 
-[[nodiscard]] GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkDevice device, VkCommandPool command_pool, VkQueue queue,
-                                  uint32_t queue_family_index);
+[[nodiscard]] GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkDevice device, VkCommandPool command_pool,
+                                  VkQueue queue);
