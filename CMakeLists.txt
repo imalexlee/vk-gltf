@@ -33,7 +33,7 @@ target_link_libraries(vk-gltf PUBLIC vk-lib)
 
 target_include_directories(vk-gltf PUBLIC include vendor)
 
-set(VK_GLTF_BUILD_TEST_VIEWER TRUE)
+set(VK_GLTF_BUILD_TEST_VIEWER FALSE)
 if (VK_GLTF_BUILD_TEST_VIEWER)
     add_subdirectory(test)
 endif ()

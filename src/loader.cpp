@@ -494,12 +494,16 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
             }
         }
 
-        VkExtent3D        base_image_extent = vk_lib::extent_3d(ktx_texture->baseWidth, ktx_texture->baseHeight);
+        static uint64_t total_texture_bytes_allocated = 0;
+        VkExtent3D      base_image_extent             = vk_lib::extent_3d(ktx_texture->baseWidth, ktx_texture->baseHeight);
+
+        total_texture_bytes_allocated += (base_image_extent.height * base_image_extent.width);
         VkImageCreateInfo image_ci =
             vk_lib::image_create_info(static_cast<VkFormat>(ktx_texture->vkFormat), VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                       base_image_extent, ktx_texture->numLevels);
         VmaAllocationCreateInfo texture_allocation_ci{};
         texture_allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        texture_allocation_ci.flags = VMA_ALLOCATION_CREATE_STRATEGY_MIN_MEMORY_BIT;
 
         GltfImage new_texture{};
         new_texture.extent = base_image_extent;
@@ -705,27 +709,31 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
 
             // load indices if present
             if (gltf_primitive->indices) {
-                const cgltf_accessor* indices_accessor = gltf_primitive->indices;
+                const cgltf_accessor* indices_accessor    = gltf_primitive->indices;
+                uint32_t              component_byte_size = 2;
                 if (gltf_primitive->indices->component_type == cgltf_component_type_r_32u) {
                     primitive.index_type = VK_INDEX_TYPE_UINT32;
+                    component_byte_size  = 4;
                 }
+                uint32_t total_data_size = component_byte_size * indices_accessor->count;
                 // up the size of the staging buffer if needed
-                if (staging_buffer->allocation_info.size < indices_accessor->buffer_view->size) {
-                    allocate_staging_buffer(allocator, indices_accessor->buffer_view->size, staging_buffer);
+                if (staging_buffer->allocation_info.size < total_data_size) {
+                    allocate_staging_buffer(allocator, total_data_size, staging_buffer);
                 }
                 primitive.index_count = indices_accessor->count;
                 memcpy(staging_buffer->allocation_info.pMappedData,
                        static_cast<uint8_t*>(indices_accessor->buffer_view->buffer->data) + indices_accessor->offset +
                            indices_accessor->buffer_view->offset,
-                       indices_accessor->buffer_view->size);
+                       total_data_size);
 
-                VkBufferCopy buffer_copy = vk_lib::buffer_copy(indices_accessor->buffer_view->size);
+                VkBufferCopy buffer_copy = vk_lib::buffer_copy(total_data_size);
 
                 // create the actual index buffer on the gpu
-                VkBufferCreateInfo indices_buffer_ci = vk_lib::buffer_create_info(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                                                                  indices_accessor->buffer_view->size);
+                VkBufferCreateInfo indices_buffer_ci =
+                    vk_lib::buffer_create_info(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, total_data_size);
                 VmaAllocationCreateInfo allocation_ci{};
                 allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+                allocation_ci.flags = VMA_ALLOCATION_CREATE_STRATEGY_MIN_MEMORY_BIT;
 
                 GltfBuffer index_buffer{};
                 VK_CHECK(vmaCreateBuffer(allocator, &indices_buffer_ci, &allocation_ci, &index_buffer.buffer, &index_buffer.allocation,
@@ -850,11 +858,12 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
             VkBufferCopy buffer_copy = vk_lib::buffer_copy(vertex_data_size);
 
             // create the actual index buffer on the gpu
-            VkBufferCreateInfo vertex_buffer_ci = vk_lib::buffer_create_info(
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertex_data_size);
+            VkBufferCreateInfo vertex_buffer_ci =
+                vk_lib::buffer_create_info(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, vertex_data_size);
 
             VmaAllocationCreateInfo allocation_ci{};
             allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+            allocation_ci.flags = VMA_ALLOCATION_CREATE_STRATEGY_MIN_MEMORY_BIT;
 
             VK_CHECK(vmaCreateBuffer(allocator, &vertex_buffer_ci, &allocation_ci, &primitive.vertex_buffer.buffer,
                                      &primitive.vertex_buffer.allocation, &primitive.vertex_buffer.allocation_info));
@@ -1064,11 +1073,21 @@ GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkD
         abort_message(message);
     }
 
+    VmaBudget budgets;
+    vmaGetHeapBudgets(allocator, &budgets);
+
+    VmaTotalStatistics stats;
+    vmaCalculateStatistics(allocator, &stats);
+
     GltfBuffer staging_buffer{};
 
     GltfAsset gltf_asset{};
-    gltf_asset.images    = load_gltf_images(load_options, gltf_data, device, allocator, command_pool, queue, &staging_buffer);
-    gltf_asset.meshes    = load_gltf_meshes(gltf_data, device, queue, command_pool, allocator, &staging_buffer);
+    gltf_asset.images = load_gltf_images(load_options, gltf_data, device, allocator, command_pool, queue, &staging_buffer);
+
+    vmaGetHeapBudgets(allocator, &budgets);
+    gltf_asset.meshes = load_gltf_meshes(gltf_data, device, queue, command_pool, allocator, &staging_buffer);
+
+    vmaGetHeapBudgets(allocator, &budgets);
     gltf_asset.samplers  = load_gltf_samplers(gltf_data, device);
     gltf_asset.materials = load_gltf_materials(gltf_data);
     gltf_asset.textures  = load_gltf_textures(gltf_data);

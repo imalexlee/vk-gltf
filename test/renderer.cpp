@@ -118,6 +118,14 @@ static void renderer_create_graphics_pipeline(Renderer* renderer, VkFormat color
     renderer->transparent_graphics_pipeline = transparent_graphics_pipeline;
 }
 
+static void vma_allocation_callback(VmaAllocator allocator, uint32_t memoryType, VkDeviceMemory memory, VkDeviceSize size, void* pUserData) {
+    static uint32_t call_count = 0;
+    if (size > 250'000'000) {
+        ++call_count;
+        std::cout << std::to_string(call_count) << ": Just allocated large memory chunk of size: " << size << std::endl;
+    }
+}
+
 static VmaAllocator allocator_create(const VkContext* vk_context) {
     // since I'm using volk, have to specify function pointers for vma
     VmaVulkanFunctions vma_vulkan_functions{};
@@ -155,6 +163,10 @@ static VmaAllocator allocator_create(const VkContext* vk_context) {
     allocator_create_info.instance               = vk_context->instance;
     allocator_create_info.pVulkanFunctions       = &vma_vulkan_functions;
     allocator_create_info.flags                  = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+
+    VmaDeviceMemoryCallbacks vma_device_memory_callbacks{};
+    vma_device_memory_callbacks.pfnAllocate      = &vma_allocation_callback;
+    allocator_create_info.pDeviceMemoryCallbacks = &vma_device_memory_callbacks;
 
     VmaAllocator allocator;
     VK_CHECK(vmaCreateAllocator(&allocator_create_info, &allocator));
@@ -851,7 +863,12 @@ void renderer_create(Renderer* renderer) {
     renderer_create_graphics_pipeline(renderer, swapchain_ctx->surface_format.format);
 
     // renderer_add_gltf_asset(renderer, "../../assets/sponza/Sponza.gltf");
+    // renderer_add_gltf_asset(renderer, "../../assets/main1_sponza/NewSponza_Main_glTF_003.gltf");
+
+    renderer_add_gltf_asset(renderer, "../../assets/pkg_a_curtains/NewSponza_Curtains_glTF.gltf");
     renderer_add_gltf_asset(renderer, "../../assets/main1_sponza/NewSponza_Main_glTF_003.gltf");
+    renderer_add_gltf_asset(renderer, "../../assets/pkg_b_ivy/NewSponza_IvyGrowth_glTF.gltf");
+    renderer_add_gltf_asset(renderer, "../../assets/pkg_c1_trees/NewSponza_CypressTree_glTF.gltf");
 
     active_renderer = renderer;
 }
