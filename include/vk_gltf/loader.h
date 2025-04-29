@@ -7,6 +7,8 @@
 #include <vk_lib.h>
 #include <vk_mem_alloc.h>
 
+namespace vk_gltf {
+
 struct Vertex {
     float color[4]{1, 1, 1, 1};
     float tangent[4]{1, 1, 1, 1};
@@ -75,13 +77,20 @@ struct GltfBuffer {
     VmaAllocationInfo allocation_info{};
 };
 
+struct Bounds {
+    float origin[3]{};
+    float extent[3]{};
+    float sphere_radius{};
+};
+
 struct GltfPrimitive {
     std::optional<GltfBuffer> index_buffer;
     VkIndexType               index_type{VK_INDEX_TYPE_UINT16};
     uint32_t                  index_count{};
     GltfBuffer                vertex_buffer{};
-    std::optional<uint32_t>   material;
+    std::optional<uint32_t>   material{};
     VkPrimitiveTopology       topology{VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
+    Bounds                    bounds{};
 };
 
 struct GltfMesh {
@@ -118,3 +127,5 @@ struct LoadOptions {
 
 [[nodiscard]] GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkDevice device, VkCommandPool command_pool,
                                   VkQueue queue);
+
+} // namespace vk_gltf

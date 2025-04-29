@@ -8,23 +8,13 @@
 #include <ktx.h>
 #include <thread>
 
-// #ifndef VMA_IMPLEMENTATION
-// #define VMA_IMPLEMENTATION
-// #endif
-//
-// #ifndef CGLTF_IMPLEMENTATION
-// #define CGLTF_IMPLEMENTATION
-// #endif CGLTF_IMPLEMENTATION
-//
-// #ifndef STB_IMAGE_IMPLEMENTATION
-// #define STB_IMAGE_IMPLEMENTATION
-// #endif STB_IMAGE_IMPLEMENTATION
-
 #include "stb_image.h"
 #include <cgltf.h>
 #include <vk_mem_alloc.h>
 
 #include <vulkan/vk_enum_string_helper.h>
+
+namespace vk_gltf {
 
 [[noreturn]] static void abort_message(const std::string_view message) {
     std::cerr << message << std::endl;
@@ -771,6 +761,28 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
                 // get vertex positions
                 if (gltf_attribute->type == cgltf_attribute_type_position) {
                     const cgltf_accessor* position_accessor = gltf_attribute->data;
+
+                    //  find bounds
+                    {
+                        float min_pos[3], max_pos[3];
+                        memcpy(min_pos, position_accessor->min, 3 * sizeof(float));
+                        memcpy(max_pos, position_accessor->max, 3 * sizeof(float));
+
+                        primitive.bounds.origin[0] = (min_pos[0] + max_pos[0]) / 2.f;
+                        primitive.bounds.origin[1] = (min_pos[1] + max_pos[1]) / 2.f;
+                        primitive.bounds.origin[2] = (min_pos[2] + max_pos[2]) / 2.f;
+
+                        primitive.bounds.extent[0] = (max_pos[0] - min_pos[0]) / 2.f;
+                        primitive.bounds.extent[1] = (max_pos[1] - min_pos[1]) / 2.f;
+                        primitive.bounds.extent[2] = (max_pos[2] - min_pos[2]) / 2.f;
+
+                        float ex_0 = primitive.bounds.extent[0];
+                        float ex_1 = primitive.bounds.extent[1];
+                        float ex_2 = primitive.bounds.extent[2];
+
+                        primitive.bounds.sphere_radius = sqrt((ex_0 * ex_0) + (ex_1 * ex_1) + (ex_2 * ex_2));
+                    }
+
                     // for now, assume its always vec3's of 32f's
                     for (uint64_t position_idx = 0; position_idx < position_accessor->count; position_idx++) {
                         const float* gltf_position = reinterpret_cast<const float*>(
@@ -1101,3 +1113,5 @@ GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkD
 
     return gltf_asset;
 }
+
+} // namespace vk_gltf
