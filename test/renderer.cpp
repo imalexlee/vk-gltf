@@ -75,15 +75,16 @@ static void renderer_create_graphics_pipeline(Renderer* renderer, VkFormat color
         vk_lib::pipeline_input_assembly_state_create_info(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     VkPipelineViewportStateCreateInfo      viewport_state = vk_lib::pipeline_viewport_state_create_info(nullptr, nullptr);
     VkPipelineRasterizationStateCreateInfo rasterization_state =
-        vk_lib::pipeline_rasterization_state_create_info(VK_POLYGON_MODE_FILL, VK_FRONT_FACE_CLOCKWISE, VK_CULL_MODE_BACK_BIT, true, 0, -5);
+        vk_lib::pipeline_rasterization_state_create_info(VK_POLYGON_MODE_FILL, VK_FRONT_FACE_CLOCKWISE, VK_CULL_MODE_BACK_BIT);
     VkPipelineMultisampleStateCreateInfo  multisample_state                   = vk_lib::pipeline_multisample_state_create_info(VK_SAMPLE_COUNT_4_BIT);
     VkPipelineColorBlendAttachmentState   opaque_color_blend_attachment_state = vk_lib::pipeline_color_blend_attachment_state();
     std::array                            opaque_color_blends                 = {opaque_color_blend_attachment_state};
     VkPipelineColorBlendStateCreateInfo   opaque_color_blend_state            = vk_lib::pipeline_color_blend_state_create_info(opaque_color_blends);
-    VkPipelineDepthStencilStateCreateInfo depth_stencil_state = vk_lib::pipeline_depth_stencil_state_create_info(true, true, VK_COMPARE_OP_GREATER);
-    std::array                            dynamic_state_types = {VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_FRONT_FACE};
-    VkPipelineDynamicStateCreateInfo      dynamic_state       = vk_lib::pipeline_dynamic_state_create_info(dynamic_state_types);
-    VkGraphicsPipelineCreateInfo          opaque_graphics_pipeline_ci = vk_lib::graphics_pipeline_create_info(
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_state =
+        vk_lib::pipeline_depth_stencil_state_create_info(true, true, VK_COMPARE_OP_GREATER_OR_EQUAL);
+    std::array dynamic_state_types = {VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_FRONT_FACE, VK_DYNAMIC_STATE_CULL_MODE};
+    VkPipelineDynamicStateCreateInfo dynamic_state               = vk_lib::pipeline_dynamic_state_create_info(dynamic_state_types);
+    VkGraphicsPipelineCreateInfo     opaque_graphics_pipeline_ci = vk_lib::graphics_pipeline_create_info(
         pipeline_layout, nullptr, shader_stages, &vertex_input_state, &input_assembly_state, &viewport_state, &rasterization_state,
         &multisample_state, &opaque_color_blend_state, &depth_stencil_state, &dynamic_state, nullptr, 0, 0, nullptr, 0, &rendering_create_info);
 
@@ -494,6 +495,7 @@ void renderer_add_gltf_asset(Renderer* renderer, const char* gltf_path) {
             if (gltf_primitive.material.has_value()) {
                 // offset the material index by how many materials we already have from other gltf assets
                 new_draw_object.material_index = gltf_primitive.material.value() + renderer->material_count;
+                new_draw_object.double_sided   = asset.materials[gltf_primitive.material.value()].double_sided;
 
                 if (asset.materials[gltf_primitive.material.value()].alpha_mode == vk_gltf::GltfAlphaMode::opaque) {
                     renderer->opaque_draws.push_back(new_draw_object);
@@ -794,6 +796,8 @@ void renderer_draw(Renderer* renderer) {
         push_constants.vertex_buf_address = opaque_draw.vertex_buffer.address;
         push_constants.material_index     = opaque_draw.material_index;
 
+        vkCmdSetCullMode(command_buffer, opaque_draw.double_sided ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT);
+
         vkCmdSetFrontFace(command_buffer, opaque_draw.front_face);
 
         vkCmdPushConstants(command_buffer, renderer->opaque_graphics_pipeline.pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(PushConstants),
@@ -810,6 +814,8 @@ void renderer_draw(Renderer* renderer) {
         push_constants.model_transform    = transparent_draw.transform;
         push_constants.vertex_buf_address = transparent_draw.vertex_buffer.address;
         push_constants.material_index     = transparent_draw.material_index;
+
+        vkCmdSetCullMode(command_buffer, transparent_draw.double_sided ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT);
 
         vkCmdSetFrontFace(command_buffer, transparent_draw.front_face);
 
@@ -914,13 +920,12 @@ void renderer_create(Renderer* renderer) {
 
     renderer_create_graphics_pipeline(renderer, swapchain_ctx->surface_format.format);
 
-    renderer_add_gltf_asset(renderer, "../../assets/sponza/Sponza.gltf");
-    // renderer_add_gltf_asset(renderer, "../../assets/main1_sponza/NewSponza_Main_glTF_003.gltf");
-
-    // renderer_add_gltf_asset(renderer, "../../assets/pkg_a_curtains/NewSponza_Curtains_glTF.gltf");
-    // renderer_add_gltf_asset(renderer, "../../assets/main1_sponza/NewSponza_Main_glTF_003.gltf");
+    // renderer_add_gltf_asset(renderer, "../../assets/sponza/Sponza.gltf");
+    renderer_add_gltf_asset(renderer, "../../assets/main1_sponza/NewSponza_Main_glTF_003.gltf");
+    renderer_add_gltf_asset(renderer, "../../assets/pkg_a_curtains/NewSponza_Curtains_glTF.gltf");
     // renderer_add_gltf_asset(renderer, "../../assets/pkg_b_ivy/NewSponza_IvyGrowth_glTF.gltf");
     // renderer_add_gltf_asset(renderer, "../../assets/pkg_c1_trees/NewSponza_CypressTree_glTF.gltf");
+    // renderer_add_gltf_asset(renderer, "../../assets/porsche.glb");
 
     float aspect_ratio = static_cast<float>(renderer->swapchain_context.extent.width) / static_cast<float>(renderer->swapchain_context.extent.height);
     set_camera_proj(glm::radians(70.f), aspect_ratio);

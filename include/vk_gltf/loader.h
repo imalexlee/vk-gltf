@@ -52,6 +52,8 @@ struct GltfMaterial {
     float occlusion_strength{1};
     float normal_scale{1};
 
+    bool double_sided{false};
+
     // extension factors
     float clearcoat_factor{0};
     float clearcoat_roughness_factor{0};
@@ -102,11 +104,23 @@ struct GltfNode {
     float                   local_transform[16]{};
     float                   world_transform[16]{};
     std::optional<uint32_t> mesh;
+    std::optional<uint32_t> light;
     std::vector<uint32_t>   children{};
 };
 
 struct GltfScene {
     std::vector<uint32_t> nodes;
+};
+
+enum class GltfLightType { directional, point, spot };
+
+struct GltfLight {
+    GltfLightType type{};
+    float         range{};
+    float         inner_cone_angle{};
+    float         outer_cone_angle{};
+    float         color[3]{1, 1, 1};
+    float         intensity{1};
 };
 
 struct GltfAsset {
@@ -117,6 +131,9 @@ struct GltfAsset {
     std::vector<GltfTexture>  textures{};
     std::vector<GltfImage>    images{};
     std::vector<VkSampler>    samplers{};
+
+    // EXTENSIONS
+    std::vector<GltfLight> lights{};
 };
 
 struct LoadOptions {

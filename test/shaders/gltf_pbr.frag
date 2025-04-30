@@ -94,7 +94,7 @@ float compute_EV100(float aperture, float shutterTime, float ISO) {
     // EV_100 + log2 ( S /100) = log2 ( N ^2 / t )
     // EV_100 = log2 ( N ^2 / t ) - log2 ( S /100)
     // EV_100 = log2 ( N ^2 / t . 100 / S )
-    return log2(sqrt(aperture) / shutterTime * 100 / ISO);
+    return log2(((aperture * aperture) / shutterTime) * (100 / ISO));
 }
 
 float convert_EV100_to_exposure(float EV100) {
@@ -107,6 +107,7 @@ float convert_EV100_to_exposure(float EV100) {
     float max_luminance = 1.2f * pow(2.f, EV100);
     return 1.f / max_luminance;
 }
+
 void main() {
     Material mat = material_buf.materials[nonuniformEXT (constants.material_index)];
 
@@ -114,8 +115,6 @@ void main() {
     vec4 tex_color = texture(tex_samplers[nonuniformEXT (mat.base_color_texture.index)], color_uv).rgba;
 
     float mipmap_level = (textureQueryLOD(tex_samplers[nonuniformEXT (mat.base_color_texture.index)], color_uv).x);
-    //    out_color = vec4(vec3(mipmap_level / 11), 1);
-    //    return;
 
     vec3 normal = vert_normal;
 
@@ -131,6 +130,11 @@ void main() {
         normal = normalize(TBN * tex_normal);
     }
 
+    if (!gl_FrontFacing){
+        normal = -normal;
+    }
+
+
     float occlusion = 1.f + mat.occlusion_strength * (texture(tex_samplers[nonuniformEXT (mat.occlusion_texture.index)], occlusion_uv).r - 1.f);
     vec3 emissive = texture(tex_samplers[nonuniformEXT (mat.emissive_texture.index)], emissive_uv).rgb * mat.emissive_factors;
 
@@ -144,7 +148,8 @@ void main() {
 
     vec3 halfway_dir = normalize(light_dir + view_dir);
 
-    vec4 albedo = mat.base_color_factors * tex_color;
+    vec4 albedo = vert_color * mat.base_color_factors * tex_color;
+
 
     vec3 specular_brdf_val = vec3(specular_brdf(normal, halfway_dir, light_dir, view_dir, roughness));
     vec3 diffuse_brdf = diffuse_brdf(vec3(albedo));
@@ -173,33 +178,34 @@ void main() {
     }
 
     // MANUAL EXPOSURE
-    float aperature = 16;
-    float shutter_time = 1 / 125.f;
+    float aperature = 5.6;
+    float shutter_time = 1 / 2000.f;
     float iso = 100;
 
     float EV100 = compute_EV100(aperature, shutter_time, iso);
     float exposure = convert_EV100_to_exposure(EV100);
 
     // sun
-    vec3 sun_color = vec3(0.99, 0.98, 0.95);
-    vec3 illuminance = sun_color * 5326;// sun lux
+    vec3 sun_color = vec3(1);
+    vec3 illuminance = sun_color * 105326;// sun lux
 
 
-    vec3 direct_luminance = material * illuminance * exposure * n_dot_l;
+    vec3 direct_luminance = material * illuminance *  n_dot_l;
 
-    float ambient_ratio = 0.05;
+    float ambient_ratio = 0.5;
     vec3 ambient_illuminance = illuminance * ambient_ratio;// typically much lower than direct illuminance
 
-    vec3 ambient_contribution = ambient_illuminance * exposure * albedo.rgb * occlusion;
+    vec3 ambient_contribution = ambient_illuminance * albedo.rgb * occlusion;
 
 
-    const bool enable_up_factor = false;
+    const bool enable_up_factor = true;
     if (enable_up_factor){
         float up_factor = max((dot(normal, vec3(0, 1, 0)) + 1.f) * 0.5f, 0.2);
         ambient_contribution *= up_factor;
     }
 
     vec3 final_color = direct_luminance + ambient_contribution + emissive;
+    final_color *= exposure;
     final_color = ACESFilm(final_color);
 
     out_color = vec4(final_color, albedo.a);
