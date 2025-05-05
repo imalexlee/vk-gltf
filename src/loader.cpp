@@ -1099,14 +1099,6 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
 }
 
 GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkDevice device, VkCommandPool command_pool, VkQueue queue) {
-
-#ifdef VK_NO_PROTOTYPES
-    std::cout << "VK_NO_PROTOTYPES is defined\n";
-
-#else
-    std::cout << "VK_NO_PROTOTYPES is NOT defined\n";
-
-#endif
     cgltf_options options{};
     cgltf_data*   gltf_data = nullptr;
 
