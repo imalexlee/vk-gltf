@@ -2,6 +2,7 @@
 file(GLOB_RECURSE project_sources "./*.cpp")
 add_executable(test_viewer ${project_sources})
 
+add_compile_definitions(VK_NO_PROTOTYPES)
 
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "Disable GLFW docs" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "Disable GLFW tests" FORCE)
@@ -22,8 +23,13 @@ FetchContent_Declare(
         GIT_TAG 8d7030ee258442d974f3d9905f8a919b68726712
 )
 
-FetchContent_MakeAvailable(vk-lib GLFW glm)
+FetchContent_Declare(
+        volk
+        URL https://github.com/zeux/volk/archive/refs/tags/1.4.304.zip
+)
 
-target_link_libraries(test_viewer PUBLIC vk-lib glfw glm::glm vk-gltf)
+FetchContent_MakeAvailable(vk-lib GLFW glm volk)
+
+target_link_libraries(test_viewer PUBLIC vk-lib glfw glm::glm vk-gltf volk)
 
 target_include_directories(test_viewer PUBLIC test)

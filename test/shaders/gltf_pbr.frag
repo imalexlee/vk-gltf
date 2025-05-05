@@ -139,6 +139,7 @@ void main() {
     vec3 emissive = texture(tex_samplers[nonuniformEXT (mat.emissive_texture.index)], emissive_uv).rgb * mat.emissive_factors;
 
 
+
     vec2 metallic_roughness = texture(tex_samplers[nonuniformEXT (mat.metallic_roughness_texture.index)], metal_rough_uv).bg;
     float metallic = metallic_roughness.x * mat.metallic_factor;
     float roughness = metallic_roughness.y * mat.roughness_factor;
@@ -150,6 +151,8 @@ void main() {
 
     vec4 albedo = vert_color * mat.base_color_factors * tex_color;
 
+    //    out_color = vec4(vec3(occlusion), albedo.a);
+    //    return;
 
     vec3 specular_brdf_val = vec3(specular_brdf(normal, halfway_dir, light_dir, view_dir, roughness));
     vec3 diffuse_brdf = diffuse_brdf(vec3(albedo));
@@ -178,31 +181,27 @@ void main() {
     }
 
     // MANUAL EXPOSURE
-    float aperature = 5.6;
-    float shutter_time = 1 / 2000.f;
+    float aperture = 16.f;
+    float shutter_time = 1 / 60.f;
     float iso = 100;
 
-    float EV100 = compute_EV100(aperature, shutter_time, iso);
+    float EV100 = compute_EV100(aperture, shutter_time, iso);
     float exposure = convert_EV100_to_exposure(EV100);
 
     // sun
     vec3 sun_color = vec3(1);
-    vec3 illuminance = sun_color * 105326;// sun lux
+    vec3 illuminance = sun_color * 75000;// sun lux
 
 
     vec3 direct_luminance = material * illuminance *  n_dot_l;
 
-    float ambient_ratio = 0.5;
+    float ambient_ratio = 0.1;
     vec3 ambient_illuminance = illuminance * ambient_ratio;// typically much lower than direct illuminance
 
     vec3 ambient_contribution = ambient_illuminance * albedo.rgb * occlusion;
-
-
-    const bool enable_up_factor = true;
-    if (enable_up_factor){
-        float up_factor = max((dot(normal, vec3(0, 1, 0)) + 1.f) * 0.5f, 0.2);
-        ambient_contribution *= up_factor;
-    }
+    float up_factor = dot(normal, (vec3(0, 1, 0)));
+    up_factor = (up_factor + 1.f) * 0.375f + 0.25f;// convert from [-1,1] to [0.25,1] range
+    ambient_contribution *= up_factor;
 
     vec3 final_color = direct_luminance + ambient_contribution + emissive;
     final_color *= exposure;

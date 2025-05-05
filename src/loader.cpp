@@ -10,7 +10,7 @@
 
 #include "stb_image.h"
 #include <cgltf.h>
-#include <vk_mem_alloc.h>
+#include <iostream>
 
 #include <vulkan/vk_enum_string_helper.h>
 
@@ -340,10 +340,9 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
                 // 5. buffer->image copy from staging to first mip level of image
                 vk_command_immediate_submit(device, command_pool, queue, [&](VkCommandBuffer cmd_buf) {
                     // transition all mip levels to DST_OPTIMAL
-                    VkImageSubresourceRange     subresource_range = vk_lib::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
-                    const VkImageMemoryBarrier2 copy_memory_barrier =
-                        vk_lib::image_memory_barrier_2(mipmapped_image, subresource_range, VK_IMAGE_LAYOUT_UNDEFINED,
-                                                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
+                    VkImageSubresourceRange     subresource_range   = vk_lib::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
+                    const VkImageMemoryBarrier2 copy_memory_barrier = vk_lib::image_memory_barrier_2(
+                        mipmapped_image, subresource_range, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
                     const VkDependencyInfo copy_dependency_info = vk_lib::dependency_info(&copy_memory_barrier, nullptr, nullptr);
                     vkCmdPipelineBarrier2(cmd_buf, &copy_dependency_info);
@@ -365,9 +364,8 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
                     uint64_t buffer_offset = mip_width * mip_height * 4;
                     for (uint32_t level = 1; level < mip_levels; level++) {
                         VkImageSubresourceRange     subresource_range = vk_lib::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT, 1, level - 1);
-                        const VkImageMemoryBarrier2 convert_old_to_src_optimal_barrier =
-                            vk_lib::image_memory_barrier_2(mipmapped_image, subresource_range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
+                        const VkImageMemoryBarrier2 convert_old_to_src_optimal_barrier = vk_lib::image_memory_barrier_2(
+                            mipmapped_image, subresource_range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
                         const VkDependencyInfo src_level_dependency_info =
                             vk_lib::dependency_info(&convert_old_to_src_optimal_barrier, nullptr, nullptr);
@@ -391,8 +389,7 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
                             // this means we have to transition it to transfer source optimal here
                             subresource_range = vk_lib::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT, 1, level);
                             const VkImageMemoryBarrier2 convert_last_to_src_optimal_barrier = vk_lib::image_memory_barrier_2(
-                                mipmapped_image, subresource_range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
+                                mipmapped_image, subresource_range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
                             const VkDependencyInfo final_level_dependency_info =
                                 vk_lib::dependency_info(&convert_last_to_src_optimal_barrier, nullptr, nullptr);
@@ -547,8 +544,7 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
         vk_command_immediate_submit(device, command_pool, queue, [&](VkCommandBuffer cmd_buf) {
             // TODO: specify more fine grained stage and access flags
             const VkImageMemoryBarrier2 copy_memory_barrier =
-                vk_lib::image_memory_barrier_2(new_texture.image, subresource_range, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                               VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
+                vk_lib::image_memory_barrier_2(new_texture.image, subresource_range, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
             const VkDependencyInfo copy_dependency_info = vk_lib::dependency_info(&copy_memory_barrier, nullptr, nullptr);
             vkCmdPipelineBarrier2(cmd_buf, &copy_dependency_info);
@@ -557,9 +553,8 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
                                    buffer_image_copies.size(), buffer_image_copies.data());
 
             // TODO: specify more fine grained stage and access flags
-            const VkImageMemoryBarrier2 texture_use_memory_barrier =
-                vk_lib::image_memory_barrier_2(new_texture.image, subresource_range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED);
+            const VkImageMemoryBarrier2 texture_use_memory_barrier = vk_lib::image_memory_barrier_2(
+                new_texture.image, subresource_range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
             const VkDependencyInfo texture_use_dependency_info = vk_lib::dependency_info(&texture_use_memory_barrier, nullptr, nullptr);
             vkCmdPipelineBarrier2(cmd_buf, &texture_use_dependency_info);
@@ -824,7 +819,8 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
                     } else if (strcmp(gltf_attribute->name, "TEXCOORD_1") == 0) {
                         tex_coord_idx = 1;
                     } else {
-                        abort_message("gltf loading does not handle more than 2 texture coordinates per vertex");
+                        continue;
+                        // abort_message("gltf loading does not handle more than 2 texture coordinates per vertex");
                     }
 
                     for (uint64_t uv_idx = 0; uv_idx < uv_accessor->count; uv_idx++) {
@@ -1103,6 +1099,14 @@ static void allocate_staging_buffer(VmaAllocator allocator, uint64_t data_size, 
 }
 
 GltfAsset load_gltf(const LoadOptions* load_options, VmaAllocator allocator, VkDevice device, VkCommandPool command_pool, VkQueue queue) {
+
+#ifdef VK_NO_PROTOTYPES
+    std::cout << "VK_NO_PROTOTYPES is defined\n";
+
+#else
+    std::cout << "VK_NO_PROTOTYPES is NOT defined\n";
+
+#endif
     cgltf_options options{};
     cgltf_data*   gltf_data = nullptr;
 

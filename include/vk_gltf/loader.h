@@ -1,5 +1,10 @@
 #pragma once
-#include <cgltf.h>
+
+#ifdef VK_GLTF_USE_VOLK
+#define VK_NO_PROTOTYPES
+#include <volk.h>
+#endif
+
 #include <filesystem>
 #include <optional>
 #include <vector>
